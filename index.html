@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0f1117">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Control">
+<title>Control – Cleaning Manager</title>
+<link rel="manifest" href="data:application/json;charset=utf-8,%7B%22name%22%3A%22Control%22%2C%22short_name%22%3A%22Control%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%230f1117%22%2C%22theme_color%22%3A%22%230f1117%22%7D">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { background: #0f1117; color: #e8eaf0; font-family: -apple-system, 'Segoe UI', sans-serif; overscroll-behavior: none; }
+  input, select, button { font-family: inherit; }
+  ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: #0f1117; } ::-webkit-scrollbar-thumb { background: #2e3347; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const INITIAL_EMPLOYEES = [
+  { id: 1, name: "Marilene", rate: 15.00 },
+  { id: 2, name: "Jordana", rate: 13.50 },
+  { id: 3, name: "Danny", rate: 12.50 },
+  { id: 4, name: "Jessica", rate: 13.00 },
+  { id: 5, name: "Grazi", rate: 15.00 },
+  { id: 6, name: "Luciana K", rate: 13.00 },
+  { id: 7, name: "Milena", rate: 13.50 },
+  { id: 8, name: "Gabriela", rate: 12.50 },
+  { id: 9, name: "Elayne", rate: 12.50 },
+  { id: 10, name: "Maria P", rate: 12.50 },
+  { id: 11, name: "Lucia", rate: 12.50 },
+  { id: 12, name: "Carol", rate: 12.50 },
+];
+
+let _id = 200;
+const uid = () => ++_id;
+
+function calcLabour(job, employees) {
+  return (job.employees || []).reduce((sum, e) => {
+    const emp = employees.find(x => x.id === e.empId);
+    return sum + (emp ? emp.rate * (e.hours || 0) : 0);
+  }, 0);
+}
+function calcDieselCost(distanceKm, dieselPrice, kmPerL) {
+  if (!distanceKm || !dieselPrice || !kmPerL) return 0;
+  return (distanceKm / kmPerL) * dieselPrice;
+}
+function totalHours(job) {
+  return (job.employees || []).reduce((s, e) => s + (e.hours || 0), 0);
+}
+function downloadCSV(filename, rows) {
+  const csv = rows.map(r => r.map(c => '"' + String(c ?? "").replace(/"/g, '""') + '"').join(",")).join("\n");
+  const uri = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
+  const a = document.createElement("a");
+  a.href = uri; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+function persist(key, value) {
+  try { localStorage.setItem("ctrl_" + key, JSON.stringify(value)); } catch(e) {}
+}
+function loadKey(key, fallback) {
+  try { const v = localStorage.getItem("ctrl_" + key); return v ? JSON.parse(v) : fallback; } catch(e) { return fallback; }
+}
+
+const s = {
+  app: { background: "#0f1117", minHeight: "100vh", color: "#e8eaf0", fontSize: 14, paddingBottom: 20 },
+  header: { background: "#1a1d27", borderBottom: "1px solid #2e3347", padding: "14px 16px", display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, zIndex: 50 },
+  h1: { fontSize: 18, fontWeight: 700, margin: 0 },
+  tabs: { display: "flex", gap: 0, borderBottom: "1px solid #2e3347", overflowX: "auto", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" },
+  tab: (a) => ({ padding: "11px 14px", cursor: "pointer", fontSize: 13, color: a ? "#e8eaf0" : "#7a7f99", background: a ? "#1a1d27" : "transparent", borderBottom: a ? "2px solid #6c8fff" : "2px solid transparent", whiteSpace: "nowrap", flexShrink: 0 }),
+  page: { padding: 14 },
+  card: { background: "#1a1d27", border: "1px solid #2e3347", borderRadius: 10, padding: 14, marginBottom: 12 },
+  cardTitle: { fontSize: 13, fontWeight: 600, color: "#6c8fff", marginBottom: 10 },
+  statRow: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 12 },
+  stat: { background: "#1a1d27", border: "1px solid #2e3347", borderRadius: 10, padding: 12, textAlign: "center" },
+  statVal: (p) => ({ fontSize: 20, fontWeight: 700, color: p ? "#3ddc97" : "#ff5c72" }),
+  statLbl: { fontSize: 10, color: "#7a7f99", marginTop: 3 },
+  label: { fontSize: 12, color: "#7a7f99", display: "block", marginBottom: 4 },
+  input: { width: "100%", background: "#222636", border: "1px solid #2e3347", borderRadius: 8, padding: "10px 12px", color: "#e8eaf0", fontSize: 15, outline: "none", boxSizing: "border-box" },
+  select: { width: "100%", background: "#222636", border: "1px solid #2e3347", borderRadius: 8, padding: "10px 12px", color: "#e8eaf0", fontSize: 15, outline: "none", boxSizing: "border-box" },
+  btnPrimary: { background: "#6c8fff", color: "#fff", border: "none", borderRadius: 8, padding: "11px 18px", cursor: "pointer", fontWeight: 600, fontSize: 14 },
+  btnGhost: { background: "#222636", color: "#e8eaf0", border: "1px solid #2e3347", borderRadius: 8, padding: "11px 14px", cursor: "pointer", fontSize: 14 },
+  btnDanger: { background: "#ff5c72", color: "#fff", border: "none", borderRadius: 8, padding: "8px 12px", cursor: "pointer", fontSize: 13 },
+  btnSm: { padding: "7px 12px", fontSize: 13 },
+  table: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
+  th: { textAlign: "left", color: "#7a7f99", fontWeight: 600, padding: "7px 8px", borderBottom: "1px solid #2e3347", whiteSpace: "nowrap" },
+  td: { padding: "8px 8px", borderBottom: "1px solid #2e3347", verticalAlign: "middle" },
+  profit: (p) => ({ color: p ? "#3ddc97" : "#ff5c72", fontWeight: 700 }),
+  empRow: { display: "flex", alignItems: "center", gap: 8, background: "#222636", borderRadius: 8, padding: "10px 12px", marginBottom: 8 },
+  overlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,.7)", zIndex: 100, display: "flex", alignItems: "flex-end", justifyContent: "center" },
+  modal: { background: "#1a1d27", border: "1px solid #2e3347", borderRadius: "16px 16px 0 0", padding: 20, width: "100%", maxHeight: "92vh", overflowY: "auto" },
+  modalTitle: { fontSize: 16, fontWeight: 700, marginBottom: 14 },
+  grid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 },
+  green: { color: "#3ddc97", fontWeight: 700 },
+};
+
+function JobModal({ employees, customers, job, dieselPrice, kmPerL, onSave, onClose, onAddCustomer }) {
+  const [customerId, setCustomerId] = useState(job?.customerId ?? "");
+  const [amountReceived, setAmountReceived] = useState(job?.amountReceived ?? "");
+  const [slots, setSlots] = useState(job?.employees?.length ? job.employees.map(e => ({ ...e })) : [{ empId: "", hours: "" }]);
+  const [showAddCustomer, setShowAddCustomer] = useState(false);
+  const [newCustInline, setNewCustInline] = useState("");
+  const [newCustAddrInline, setNewCustAddrInline] = useState("");
+  const [newCustAmountDueInline, setNewCustAmountDueInline] = useState("");
+  const [newCustDistInline, setNewCustDistInline] = useState("");
+
+  const selectedCustomer = customers.find(c => c.id === Number(customerId));
+  const dieselCost = selectedCustomer ? calcDieselCost(selectedCustomer.distanceKm, dieselPrice, kmPerL) : 0;
+  const due = selectedCustomer?.amountDue || 0;
+  const labour = slots.reduce((sum, sl) => { const emp = employees.find(x => x.id === sl.empId); return sum + (emp ? emp.rate * (sl.hours || 0) : 0); }, 0);
+  const estProfit = due - labour - dieselCost;
+  const received = parseFloat(amountReceived) || 0;
+
+  const addSlot = () => setSlots(s => [...s, { empId: "", hours: "" }]);
+  const removeSlot = (i) => setSlots(s => s.filter((_, idx) => idx !== i));
+  const updateSlot = (i, key, val) => setSlots(s => s.map((sl, idx) => idx === i ? { ...sl, [key]: key === "hours" ? parseFloat(val) || "" : Number(val) } : sl));
+
+  const save = () => {
+    if (!customerId) { alert("Select a customer"); return; }
+    onSave({ customerId: Number(customerId), paid: due, amountDue: due, amountReceived: received, employees: slots.filter(sl => sl.empId) });
+  };
+
+  return (
+    <div style={s.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={s.modal}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={s.modalTitle}>{job ? "Edit Job" : "Add Job"}</div>
+          <button style={{ background: "none", border: "none", color: "#7a7f99", fontSize: 22, cursor: "pointer" }} onClick={onClose}>✕</button>
+        </div>
+
+        {/* Customer selector */}
+        <div style={{ marginBottom: 12 }}>
+          <label style={s.label}>Customer</label>
+          <select style={s.select} value={customerId} onChange={e => setCustomerId(e.target.value)}>
+            <option value="">Select customer…</option>
+            {customers.map(c => <option key={c.id} value={c.id}>{c.name}{c.amountDue ? ` — €${c.amountDue}` : ""}{c.distanceKm ? ` · ${c.distanceKm}km` : ""}</option>)}
+          </select>
+          {!showAddCustomer && (
+            <button style={{ ...s.btnGhost, ...s.btnSm, marginTop: 8, width: "100%" }} onClick={() => setShowAddCustomer(true)}>+ New Customer</button>
+          )}
+          {showAddCustomer && (
+            <div style={{ background: "#222636", borderRadius: 8, padding: 12, marginTop: 8 }}>
+              <div style={{ fontSize: 12, color: "#6c8fff", fontWeight: 600, marginBottom: 8 }}>New Customer</div>
+              <div style={{ marginBottom: 8 }}><label style={s.label}>Name</label><input style={s.input} value={newCustInline} onChange={e => setNewCustInline(e.target.value)} placeholder="e.g. Valerie" /></div>
+              <div style={{ marginBottom: 8 }}><label style={s.label}>Address</label><input style={s.input} value={newCustAddrInline} onChange={e => setNewCustAddrInline(e.target.value)} placeholder="e.g. 12 Main Street" /></div>
+              <div style={{ marginBottom: 8 }}><label style={s.label}>Amount Due per Visit (€)</label><input style={s.input} type="number" value={newCustAmountDueInline} onChange={e => setNewCustAmountDueInline(e.target.value)} placeholder="e.g. 80.00" min="0" step="0.01" /></div>
+              <div style={{ marginBottom: 10 }}><label style={s.label}>Distance (km, round trip)</label><input style={s.input} type="number" value={newCustDistInline} onChange={e => setNewCustDistInline(e.target.value)} placeholder="e.g. 12" min="0" step="0.1" /></div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button style={{ ...s.btnPrimary, flex: 1 }} onClick={() => {
+                  if (!newCustInline.trim()) return;
+                  const nc = { id: uid(), name: newCustInline.trim(), address: newCustAddrInline.trim(), amountDue: parseFloat(newCustAmountDueInline) || 0, distanceKm: parseFloat(newCustDistInline) || 0 };
+                  onAddCustomer(nc);
+                  setCustomerId(String(nc.id));
+                  setNewCustInline(""); setNewCustAddrInline(""); setNewCustAmountDueInline(""); setNewCustDistInline("");
+                  setShowAddCustomer(false);
+                }}>Add & Select</button>
+                <button style={s.btnGhost} onClick={() => setShowAddCustomer(false)}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Customer info preview */}
+        {selectedCustomer && (
+          <div style={{ background: "#222636", borderRadius: 8, padding: "10px 12px", marginBottom: 12, fontSize: 13 }}>
+            {selectedCustomer.address && <div style={{ color: "#7a7f99", marginBottom: 4 }}>📍 {selectedCustomer.address}</div>}
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span style={{ color: "#7a7f99" }}>Amount Due</span>
+              <strong>€{due.toFixed(2)}</strong>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span style={{ color: "#7a7f99" }}>Diesel</span>
+              <span style={{ color: "#f0a500" }}>€{dieselCost.toFixed(2)}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span style={{ color: "#7a7f99" }}>Labour</span>
+              <span>€{labour.toFixed(2)}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid #2e3347", paddingTop: 6 }}>
+              <span style={{ color: "#7a7f99" }}>Profit (Due − Labour − Diesel)</span>
+              <span style={{ color: estProfit >= 0 ? "#3ddc97" : "#ff5c72", fontWeight: 700 }}>€{estProfit.toFixed(2)}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Amount Received */}
+        <div style={{ marginBottom: 12 }}>
+          <label style={s.label}>Amount Received (€)</label>
+          <input style={s.input} type="number" value={amountReceived} onChange={e => setAmountReceived(e.target.value)} placeholder="0.00" min="0" step="0.01" />
+        </div>
+        {due > 0 && (
+          <div style={{ background: "#222636", borderRadius: 8, padding: "10px 12px", marginBottom: 12, fontSize: 13, display: "flex", justifyContent: "space-between" }}>
+            <span style={{ color: "#7a7f99" }}>Outstanding: <strong style={{ color: received >= due ? "#3ddc97" : "#ff5c72" }}>€{Math.max(0, due - received).toFixed(2)}</strong></span>
+            <span style={{ color: received >= due ? "#3ddc97" : "#f0a500", fontWeight: 600 }}>{received >= due ? "✓ Paid" : "⏳ Unpaid"}</span>
+          </div>
+        )}
+
+        {/* Employees */}
+        <div style={{ fontSize: 12, color: "#7a7f99", fontWeight: 600, marginBottom: 8 }}>Employees & Hours</div>
+        {slots.map((sl, i) => (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, marginBottom: 10, alignItems: "flex-end" }}>
+            <div><label style={s.label}>Employee {i+1}</label>
+              <select style={s.select} value={sl.empId} onChange={e => updateSlot(i, "empId", e.target.value)}>
+                <option value="">Select…</option>
+                {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name} (€{emp.rate}/h)</option>)}
+              </select>
+            </div>
+            <div><label style={s.label}>Hours</label>
+              <input style={s.input} type="number" value={sl.hours} onChange={e => updateSlot(i, "hours", e.target.value)} placeholder="0" min="0" step="0.25" />
+            </div>
+            <button style={{ ...s.btnDanger, alignSelf: "flex-end", opacity: i === 0 ? 0.3 : 1 }} onClick={() => i > 0 && removeSlot(i)}>✕</button>
+          </div>
+        ))}
+        <button style={{ ...s.btnGhost, width: "100%", marginBottom: 16 }} onClick={addSlot}>+ Add Employee</button>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <button style={{ ...s.btnGhost, width: "100%" }} onClick={onClose}>Cancel</button>
+          <button style={{ ...s.btnPrimary, width: "100%" }} onClick={save}>Save Job</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function ConfirmModal({ message, onConfirm, onCancel }) {
+  return (
+    <div style={s.overlay} onClick={e => e.target === e.currentTarget && onCancel()}>
+      <div style={{ ...s.modal, borderRadius: 16, maxHeight: "auto", padding: 24, textAlign: "center" }}>
+        <div style={{ fontSize: 36, marginBottom: 10 }}>🗑️</div>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Are you sure?</div>
+        <div style={{ color: "#7a7f99", fontSize: 14, marginBottom: 20 }}>{message}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <button style={{ ...s.btnGhost, width: "100%" }} onClick={onCancel}>Cancel</button>
+          <button style={{ ...s.btnDanger, width: "100%", padding: "11px" }} onClick={onConfirm}>Delete</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [tab, setTab] = useState("week");
+  const [employees, setEmployees] = useState(INITIAL_EMPLOYEES);
+  const [customers, setCustomers] = useState([]);
+  const [weeks, setWeeks] = useState([]);
+  const [selectedWeekId, setSelectedWeekId] = useState(null);
+  const [dieselPrice, setDieselPrice] = useState(1.65);
+  const [kmPerL, setKmPerL] = useState(15);
+  const [modal, setModal] = useState(null);
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [showAddWeek, setShowAddWeek] = useState(false);
+  const [newWeekLabel, setNewWeekLabel] = useState("");
+  const [newEmpName, setNewEmpName] = useState("");
+  const [newEmpRate, setNewEmpRate] = useState("");
+  const [editRateId, setEditRateId] = useState(null);
+  const [editRateVal, setEditRateVal] = useState("");
+  const [newCustName, setNewCustName] = useState("");
+  const [newCustAddr, setNewCustAddr] = useState("");
+  const [newCustAmountDue, setNewCustAmountDue] = useState("");
+  const [newCustDist, setNewCustDist] = useState("");
+  const [editCustId, setEditCustId] = useState(null);
+  const [editCustDist, setEditCustDist] = useState("");
+  const [editCustAddr, setEditCustAddr] = useState("");
+  const [editCustAmountDue, setEditCustAmountDue] = useState("");
+  const [saveMsg, setSaveMsg] = useState("");
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    const emp = loadKey("employees", INITIAL_EMPLOYEES);
+    const cust = loadKey("customers", []);
+    const wks = loadKey("weeks", []);
+    const dp = loadKey("dieselPrice", 1.65);
+    const kml = loadKey("kmPerL", 15);
+    const selId = loadKey("selectedWeekId", null);
+    setEmployees(emp); setCustomers(cust); setWeeks(wks);
+    setDieselPrice(dp); setKmPerL(kml); setSelectedWeekId(selId);
+    // Sync _id counter to avoid collisions
+    const allIds = [...emp.map(e=>e.id), ...cust.map(c=>c.id), ...wks.flatMap(w=>[w.id,...(w.jobs||[]).map(j=>j.id)])];
+    if (allIds.length) _id = Math.max(...allIds) + 1;
+    setLoaded(true);
+  }, []);
+
+  function showSaved() { setSaveMsg("✓ Saved"); setTimeout(() => setSaveMsg(""), 2000); }
+
+  useEffect(() => { if (loaded) { persist("employees", employees); } }, [employees, loaded]);
+  useEffect(() => { if (loaded) { persist("customers", customers); } }, [customers, loaded]);
+  useEffect(() => { if (loaded) { persist("weeks", weeks); showSaved(); } }, [weeks, loaded]);
+  useEffect(() => { if (loaded) { persist("dieselPrice", dieselPrice); persist("kmPerL", kmPerL); } }, [dieselPrice, kmPerL, loaded]);
+  useEffect(() => { if (loaded) { persist("selectedWeekId", selectedWeekId); } }, [selectedWeekId, loaded]);
+
+  const currentWeek = weeks.find(w => w.id === selectedWeekId);
+  const dieselForJob = (job) => { const c = customers.find(x => x.id === job.customerId); return c ? calcDieselCost(c.distanceKm, dieselPrice, kmPerL) : 0; };
+
+  const addWeek = () => { if (!newWeekLabel.trim()) return; const w = { id: uid(), label: newWeekLabel.trim(), jobs: [] }; setWeeks(p => [...p, w]); setSelectedWeekId(w.id); setNewWeekLabel(""); setShowAddWeek(false); };
+  const saveJob = (data) => { setWeeks(p => p.map(w => { if (w.id !== selectedWeekId) return w; if (modal?.job) return { ...w, jobs: w.jobs.map(j => j.id === modal.job.id ? { ...j, ...data } : j) }; return { ...w, jobs: [...w.jobs, { id: uid(), ...data }] }; })); setModal(null); };
+  const addEmployee = () => { if (!newEmpName.trim() || !newEmpRate) return; setEmployees(p => [...p, { id: uid(), name: newEmpName.trim(), rate: parseFloat(newEmpRate) }]); setNewEmpName(""); setNewEmpRate(""); };
+  const saveRate = (id) => { const r = parseFloat(editRateVal); if (isNaN(r)) return; setEmployees(p => p.map(e => e.id === id ? { ...e, rate: r } : e)); setEditRateId(null); };
+  const addCustomer = () => { if (!newCustName.trim()) return; setCustomers(p => [...p, { id: uid(), name: newCustName.trim(), address: newCustAddr.trim(), amountDue: parseFloat(newCustAmountDue) || 0, distanceKm: parseFloat(newCustDist) || 0 }]); setNewCustName(""); setNewCustAddr(""); setNewCustAmountDue(""); setNewCustDist(""); };
+  const saveCustDist = (id) => { setCustomers(p => p.map(c => c.id === id ? { ...c, address: editCustAddr.trim(), amountDue: parseFloat(editCustAmountDue)||0, distanceKm: parseFloat(editCustDist)||0 } : c)); setEditCustId(null); };
+  const doDelete = () => { if (!confirmDel) return; if (confirmDel.type === "job") setWeeks(p => p.map(w => w.id === selectedWeekId ? { ...w, jobs: w.jobs.filter(j => j.id !== confirmDel.id) } : w)); if (confirmDel.type === "emp") setEmployees(p => p.filter(e => e.id !== confirmDel.id)); if (confirmDel.type === "cust") setCustomers(p => p.filter(c => c.id !== confirmDel.id)); setConfirmDel(null); };
+
+  const weekJobs = currentWeek?.jobs || [];
+  const weekRevenue = weekJobs.reduce((s, j) => s + (j.amountDue || j.paid || 0), 0);
+  const weekLabour = weekJobs.reduce((s, j) => s + calcLabour(j, employees), 0);
+  const weekDiesel = weekJobs.reduce((s, j) => s + dieselForJob(j), 0);
+  const weekNet = weekRevenue - weekLabour - weekDiesel;
+
+  const exportAll = () => {
+    const rows = [["Week","Customer","Location","Employees","Hrs","Due (€)","Received (€)","Labour (€)","Diesel (€)","Profit (€)"]];
+    weeks.forEach(w => { (w.jobs||[]).forEach(j => { const c = customers.find(x => x.id === j.customerId); const lab = calcLabour(j,employees); const die = dieselForJob(j); const empStr = j.employees.map(e => { const emp = employees.find(x => x.id===e.empId); return emp ? `${emp.name}(${e.hours}h)` : ""; }).filter(Boolean).join(";"); rows.push([w.label, c?.name||"—", j.location||"", empStr, totalHours(j), (j.amountDue||j.paid||0).toFixed(2), (j.amountReceived||0).toFixed(2), lab.toFixed(2), die.toFixed(2), ((j.amountDue||j.paid||0)-lab-die).toFixed(2)]); }); if (!(w.jobs||[]).length) rows.push([w.label,"(no jobs)","","","","","","","",""]); });
+    downloadCSV("control-all.csv", rows);
+  };
+
+  const TABS = [["week","📅 Jobs"],["unpaid","⚠️ Unpaid"],["customers","🏠 Customers"],["employees","👥 Staff"],["summary","📊 Summary"],["settings","⚙️ Settings"]];
+
+  if (!loaded) return <div style={{ background:"#0f1117", height:"100vh", display:"flex", alignItems:"center", justifyContent:"center", color:"#7a7f99", fontSize:16 }}>Loading…</div>;
+
+  return (
+    <div style={s.app}>
+      {/* Header */}
+      <div style={s.header}>
+        <span style={{ fontSize: 24 }}>🧹</span>
+        <div style={{ flex: 1 }}>
+          <div style={s.h1}>Control</div>
+          <div style={{ fontSize: 11, color: "#7a7f99" }}>Cleaning Manager</div>
+        </div>
+        {saveMsg && <span style={{ fontSize: 12, color: "#3ddc97", fontWeight: 600, background: "#1d3d2c", padding: "4px 10px", borderRadius: 20 }}>{saveMsg}</span>}
+      </div>
+
+      {/* Tabs */}
+      <div style={s.tabs}>
+        {TABS.map(([key, label]) => <div key={key} style={s.tab(tab===key)} onClick={() => setTab(key)}>{label}</div>)}
+      </div>
+
+      {/* ── WEEKLY JOBS ── */}
+      {tab === "week" && (
+        <div style={s.page}>
+          <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap" }}>
+            <select style={{ ...s.select, flex:1 }} value={selectedWeekId||""} onChange={e => setSelectedWeekId(Number(e.target.value))}>
+              <option value="">— Select week —</option>
+              {weeks.map(w => <option key={w.id} value={w.id}>{w.label}</option>)}
+            </select>
+            <button style={{ ...s.btnGhost, ...s.btnSm }} onClick={() => setShowAddWeek(v => !v)}>+ Week</button>
+          </div>
+          {showAddWeek && (
+            <div style={{ ...s.card, marginBottom: 12 }}>
+              <label style={s.label}>Week label (e.g. 16/06 - 22/06)</label>
+              <input style={{ ...s.input, marginBottom: 10 }} value={newWeekLabel} onChange={e => setNewWeekLabel(e.target.value)} placeholder="16/06 - 22/06" />
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                <button style={{ ...s.btnGhost, width:"100%" }} onClick={() => setShowAddWeek(false)}>Cancel</button>
+                <button style={{ ...s.btnPrimary, width:"100%" }} onClick={addWeek}>Add Week</button>
+              </div>
+            </div>
+          )}
+          {currentWeek && (
+            <div style={s.statRow}>
+              <div style={s.stat}><div style={s.statVal(true)}>€{weekRevenue.toFixed(0)}</div><div style={s.statLbl}>Revenue</div></div>
+              <div style={s.stat}><div style={s.statVal(false)}>€{(weekLabour+weekDiesel).toFixed(0)}</div><div style={s.statLbl}>Costs</div></div>
+              <div style={s.stat}><div style={s.statVal(weekNet>=0)}>€{weekNet.toFixed(0)}</div><div style={s.statLbl}>Profit</div></div>
+            </div>
+          )}
+          {currentWeek && (
+            <button style={{ ...s.btnPrimary, width:"100%", marginBottom:12, padding:14, fontSize:15 }} onClick={() => setModal({ type:"addJob" })}>+ Add Job</button>
+          )}
+          {!currentWeek ? (
+            <div style={{ ...s.card, textAlign:"center", color:"#7a7f99", padding:32 }}>Create or select a week to start.</div>
+          ) : weekJobs.length === 0 ? (
+            <div style={{ ...s.card, textAlign:"center", color:"#7a7f99", padding:32 }}>No jobs yet. Tap + Add Job above.</div>
+          ) : weekJobs.map(j => {
+            const cust = customers.find(c => c.id === j.customerId);
+            const labour = calcLabour(j, employees);
+            const diesel = dieselForJob(j);
+            const due = j.amountDue || j.paid || 0;
+            const received = j.amountReceived || 0;
+            const profit = due - labour - diesel;
+            const isPaid = received >= due && due > 0;
+            const empStr = j.employees.map(e => { const emp = employees.find(x => x.id===e.empId); return emp ? `${emp.name} (${e.hours}h)` : ""; }).filter(Boolean).join(", ");
+            return (
+              <div key={j.id} style={{ background:"#1a1d27", border:"1px solid #2e3347", borderRadius:10, padding:"12px 14px", marginBottom:10 }}>
+                <div style={{ display:"flex", alignItems:"center", marginBottom:8, gap:8 }}>
+                  <span style={{ fontWeight:700, fontSize:15, flex:1 }}>{cust?.name||"—"}</span>
+                  <span style={{ fontSize:12, fontWeight:600, color: isPaid?"#3ddc97":"#ff5c72", background: isPaid?"#1d3d2c":"#3d1d24", padding:"3px 8px", borderRadius:12 }}>{isPaid?"✓ Paid":"⏳ Unpaid"}</span>
+                  <button style={{ ...s.btnGhost, ...s.btnSm }} onClick={() => setModal({ type:"editJob", job:j })}>Edit</button>
+                  <button style={{ ...s.btnDanger, ...s.btnSm }} onClick={() => setConfirmDel({ type:"job", id:j.id, msg:"Delete this job?" })}>✕</button>
+                </div>
+                {cust?.address && <div style={{ fontSize:12, color:"#7a7f99", marginBottom:4 }}>📍 {cust.address}</div>}
+                {empStr && <div style={{ fontSize:12, color:"#aaa", marginBottom:10 }}>👤 {empStr}</div>}
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:6 }}>
+                  {[["Hours", `${totalHours(j)}h`, null], ["Due", `€${due.toFixed(2)}`, null], ["Received", `€${received.toFixed(2)}`, isPaid?"#3ddc97":"#f0a500"], ["Labour", `€${labour.toFixed(2)}`, null], ["Diesel", `€${diesel.toFixed(2)}`, "#f0a500"], ["Profit", `€${profit.toFixed(2)}`, profit>=0?"#3ddc97":"#ff5c72"]].map(([lbl,val,clr]) => (
+                    <div key={lbl} style={{ background:"#222636", borderRadius:7, padding:"8px 10px" }}>
+                      <div style={{ fontSize:10, color:"#7a7f99", marginBottom:2 }}>{lbl}</div>
+                      <div style={{ fontWeight:600, color:clr||"#e8eaf0" }}>{val}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── UNPAID ── */}
+      {tab === "unpaid" && (
+        <div style={s.page}>
+          {(() => {
+            const all = weeks.flatMap(w => (w.jobs||[]).map(j => ({ ...j, weekLabel:w.label })));
+            const unpaid = all.filter(j => (j.amountReceived||0) < (j.amountDue||j.paid||0));
+            const totalOwed = unpaid.reduce((s,j) => s + ((j.amountDue||j.paid||0)-(j.amountReceived||0)), 0);
+            return (
+              <>
+                <div style={{ ...s.card, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <div><div style={{ fontSize:11, color:"#7a7f99", marginBottom:2 }}>Total Outstanding</div><div style={{ fontSize:28, fontWeight:700, color:"#ff5c72" }}>€{totalOwed.toFixed(2)}</div></div>
+                  <div style={{ fontSize:13, color:"#7a7f99" }}>{unpaid.length} job{unpaid.length!==1?"s":""}</div>
+                </div>
+                {unpaid.length === 0 ? (
+                  <div style={{ ...s.card, textAlign:"center", color:"#3ddc97", padding:40, fontSize:16, fontWeight:600 }}>✓ All jobs are paid!</div>
+                ) : unpaid.map(j => {
+                  const cust = customers.find(c => c.id===j.customerId);
+                  const due = j.amountDue||j.paid||0;
+                  const received = j.amountReceived||0;
+                  return (
+                    <div key={j.id} style={{ ...s.card }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+                        <strong style={{ fontSize:15 }}>{cust?.name||"—"}</strong>
+                        <button style={{ ...s.btnPrimary, ...s.btnSm }} onClick={() => setWeeks(p => p.map(w => ({ ...w, jobs:(w.jobs||[]).map(jj => jj.id===j.id ? { ...jj, amountReceived:due } : jj) })))}>✓ Mark Paid</button>
+                      </div>
+                      <div style={{ fontSize:12, color:"#7a7f99", marginBottom:8 }}>{j.weekLabel}{cust?.address ? ` · ${cust.address}` : ""}</div>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6 }}>
+                        <div style={{ background:"#222636", borderRadius:7, padding:"8px 10px" }}><div style={{ fontSize:10, color:"#7a7f99", marginBottom:2 }}>Due</div><div style={{ fontWeight:600 }}>€{due.toFixed(2)}</div></div>
+                        <div style={{ background:"#222636", borderRadius:7, padding:"8px 10px" }}><div style={{ fontSize:10, color:"#7a7f99", marginBottom:2 }}>Received</div><div style={{ fontWeight:600, color:"#f0a500" }}>€{received.toFixed(2)}</div></div>
+                        <div style={{ background:"#222636", borderRadius:7, padding:"8px 10px" }}><div style={{ fontSize:10, color:"#7a7f99", marginBottom:2 }}>Outstanding</div><div style={{ fontWeight:700, color:"#ff5c72" }}>€{(due-received).toFixed(2)}</div></div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* ── CUSTOMERS ── */}
+      {tab === "customers" && (
+        <div style={s.page}>
+          <div style={s.card}>
+            <div style={s.cardTitle}>Customers & Distances</div>
+            {customers.length===0 && <div style={{ color:"#7a7f99", marginBottom:12, fontSize:13 }}>No customers yet. Add one below.</div>}
+            {customers.map(c => (
+              <div key={c.id} style={{ ...s.empRow, flexWrap:'wrap', alignItems: editCustId===c.id ? 'flex-start' : 'center' }}>
+                <span style={{ flex:1, fontWeight:600 }}>{c.name}</span>
+                {editCustId===c.id ? (
+                  <div style={{ width:"100%", marginTop:8 }}>
+                    <div style={{ marginBottom:8 }}><label style={s.label}>Address</label><input style={s.input} value={editCustAddr} onChange={e => setEditCustAddr(e.target.value)} placeholder="e.g. 12 Main Street" autoFocus /></div>
+                    <div style={{ marginBottom:8 }}><label style={s.label}>Amount Due per Visit (€)</label><input style={s.input} type="number" value={editCustAmountDue} onChange={e => setEditCustAmountDue(e.target.value)} placeholder="e.g. 80.00" min="0" step="0.01" /></div>
+                    <div style={{ marginBottom:10 }}><label style={s.label}>Distance (km, round trip)</label><input style={s.input} type="number" value={editCustDist} onChange={e => setEditCustDist(e.target.value)} placeholder="km" min="0" step="0.1" /></div>
+                    <div style={{ display:"flex", gap:8 }}>
+                      <button style={{ ...s.btnPrimary, flex:1 }} onClick={() => saveCustDist(c.id)}>Save</button>
+                      <button style={{ ...s.btnGhost }} onClick={() => setEditCustId(null)}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ flex:1 }}>
+                      {c.address && <div style={{ fontSize:11, color:"#7a7f99" }}>{c.address}</div>}
+                      <div style={{ display:"flex", gap:8, marginTop:2, flexWrap:"wrap" }}>
+                        {c.amountDue > 0 && <span style={{ color:"#3ddc97", fontSize:12, fontWeight:600 }}>€{c.amountDue.toFixed(2)}/visit</span>}
+                        <span style={{ color:"#6c8fff", fontSize:12 }}>{c.distanceKm?`${c.distanceKm}km`:"—"}</span>
+                        <span style={{ color:"#f0a500", fontSize:12 }}>€{calcDieselCost(c.distanceKm,dieselPrice,kmPerL).toFixed(2)} diesel</span>
+                      </div>
+                    </div>
+                    <button style={{ ...s.btnGhost, ...s.btnSm, marginRight:4 }} onClick={() => { setEditCustId(c.id); setEditCustAddr(c.address||''); setEditCustAmountDue(c.amountDue||''); setEditCustDist(c.distanceKm||''); }}>Edit</button>
+                    <button style={{ ...s.btnDanger, ...s.btnSm }} onClick={() => setConfirmDel({ type:"cust", id:c.id, msg:`Remove ${c.name}?` })}>✕</button>
+                  </>
+                )}
+              </div>
+            ))}
+            <div style={{ borderTop:"1px solid #2e3347", marginTop:14, paddingTop:14 }}>
+              <div style={{ fontSize:12, color:"#6c8fff", fontWeight:600, marginBottom:10 }}>Add New Customer</div>
+              <div style={{ marginBottom:10 }}><label style={s.label}>Name</label><input style={s.input} value={newCustName} onChange={e => setNewCustName(e.target.value)} placeholder="e.g. Valerie" /></div>
+              <div style={{ marginBottom:10 }}><label style={s.label}>Address</label><input style={s.input} value={newCustAddr} onChange={e => setNewCustAddr(e.target.value)} placeholder="e.g. 12 Main Street" /></div>
+              <div style={{ marginBottom:10 }}><label style={s.label}>Amount Due per Visit (€)</label><input style={s.input} type="number" value={newCustAmountDue} onChange={e => setNewCustAmountDue(e.target.value)} placeholder="e.g. 80.00" min="0" step="0.01" /></div>
+              <div style={{ marginBottom:12 }}><label style={s.label}>Distance (km, round trip)</label><input style={s.input} type="number" value={newCustDist} onChange={e => setNewCustDist(e.target.value)} placeholder="e.g. 12" min="0" step="0.1" /></div>
+              <button style={{ ...s.btnPrimary, width:"100%" }} onClick={addCustomer}>+ Add Customer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── EMPLOYEES ── */}
+      {tab === "employees" && (
+        <div style={s.page}>
+          <div style={s.card}>
+            <div style={s.cardTitle}>Pay Rates</div>
+            {employees.map(e => (
+              <div key={e.id} style={s.empRow}>
+                <span style={{ flex:1, fontWeight:600 }}>{e.name}</span>
+                {editRateId===e.id ? (
+                  <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                    <input style={{ ...s.input, width:90 }} type="number" value={editRateVal} onChange={x => setEditRateVal(x.target.value)} step="0.50" min="0" autoFocus />
+                    <button style={{ ...s.btnPrimary, ...s.btnSm }} onClick={() => saveRate(e.id)}>Save</button>
+                    <button style={{ ...s.btnGhost, ...s.btnSm }} onClick={() => setEditRateId(null)}>✕</button>
+                  </div>
+                ) : (
+                  <>
+                    <span style={{ color:"#3ddc97", fontWeight:700, marginRight:8 }}>€{e.rate.toFixed(2)}/h</span>
+                    <button style={{ ...s.btnGhost, ...s.btnSm, marginRight:4 }} onClick={() => { setEditRateId(e.id); setEditRateVal(e.rate); }}>Edit</button>
+                    <button style={{ ...s.btnDanger, ...s.btnSm }} onClick={() => setConfirmDel({ type:"emp", id:e.id, msg:`Remove ${e.name}?` })}>✕</button>
+                  </>
+                )}
+              </div>
+            ))}
+            <div style={{ borderTop:"1px solid #2e3347", marginTop:14, paddingTop:14 }}>
+              <div style={{ fontSize:12, color:"#6c8fff", fontWeight:600, marginBottom:10 }}>Add Employee</div>
+              <div style={{ marginBottom:10 }}><label style={s.label}>Name</label><input style={s.input} value={newEmpName} onChange={e => setNewEmpName(e.target.value)} placeholder="Employee name" /></div>
+              <div style={{ marginBottom:12 }}><label style={s.label}>Hourly Rate (€)</label><input style={s.input} type="number" value={newEmpRate} onChange={e => setNewEmpRate(e.target.value)} placeholder="12.50" step="0.50" min="0" /></div>
+              <button style={{ ...s.btnPrimary, width:"100%" }} onClick={addEmployee}>+ Add Employee</button>
+            </div>
+          </div>
+          <div style={s.card}>
+            <div style={s.cardTitle}>Earnings by Week</div>
+            {weeks.length===0 ? <div style={{ color:"#7a7f99", fontSize:13 }}>No weeks yet.</div> : (
+              <div style={{ overflowX:"auto" }}>
+                <table style={s.table}>
+                  <thead><tr><th style={s.th}>Employee</th>{weeks.slice(-6).map(w => <th key={w.id} style={s.th}>{w.label}</th>)}<th style={s.th}>Total</th></tr></thead>
+                  <tbody>{employees.map(e => { const recent=weeks.slice(-6); const earned=recent.map(w=>(w.jobs||[]).reduce((sum,j)=>{ const sl=j.employees.find(x=>x.empId===e.id); return sum+(sl?e.rate*(sl.hours||0):0); },0)); const total=earned.reduce((s,x)=>s+x,0); return (<tr key={e.id}><td style={s.td}><strong>{e.name}</strong></td>{earned.map((v,i)=><td key={i} style={s.td}>{v>0?`€${v.toFixed(2)}`:"—"}</td>)}<td style={{ ...s.td, color:"#3ddc97", fontWeight:700 }}>€{total.toFixed(2)}</td></tr>); })}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── SUMMARY ── */}
+      {tab === "summary" && (
+        <div style={s.page}>
+          {(() => {
+            const tRev=weeks.reduce((s,w)=>s+(w.jobs||[]).reduce((s2,j)=>s2+(j.amountDue||j.paid||0),0),0);
+            const tLab=weeks.reduce((s,w)=>s+(w.jobs||[]).reduce((s2,j)=>s2+calcLabour(j,employees),0),0);
+            const tDie=weeks.reduce((s,w)=>s+(w.jobs||[]).reduce((s2,j)=>s2+dieselForJob(j),0),0);
+            const tNet=tRev-tLab-tDie;
+            return (<div style={s.statRow}><div style={s.stat}><div style={s.statVal(true)}>€{tRev.toFixed(0)}</div><div style={s.statLbl}>Revenue</div></div><div style={s.stat}><div style={s.statVal(false)}>€{(tLab+tDie).toFixed(0)}</div><div style={s.statLbl}>Costs</div></div><div style={s.stat}><div style={s.statVal(tNet>=0)}>€{tNet.toFixed(0)}</div><div style={s.statLbl}>Net Profit</div></div></div>);
+          })()}
+          <button style={{ ...s.btnGhost, width:"100%", marginBottom:12 }} onClick={exportAll}>⬇ Export All to CSV</button>
+          <div style={s.card}>
+            <div style={s.cardTitle}>Weekly Overview</div>
+            {weeks.length===0 ? <div style={{ color:"#7a7f99" }}>No weeks yet.</div> : weeks.map(w => {
+              const rev=(w.jobs||[]).reduce((s,j)=>s+(j.amountDue||j.paid||0),0);
+              const lab=(w.jobs||[]).reduce((s,j)=>s+calcLabour(j,employees),0);
+              const die=(w.jobs||[]).reduce((s,j)=>s+dieselForJob(j),0);
+              const net=rev-lab-die;
+              return (
+                <div key={w.id} style={{ background:"#222636", borderRadius:8, padding:"10px 12px", marginBottom:8 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+                    <strong>{w.label}</strong>
+                    <span style={{ color:net>=0?"#3ddc97":"#ff5c72", fontWeight:700 }}>€{net.toFixed(2)}</span>
+                  </div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:4, fontSize:12, color:"#7a7f99" }}>
+                    <span>Rev: €{rev.toFixed(0)}</span>
+                    <span>Labour: €{lab.toFixed(0)}</span>
+                    <span>Diesel: €{die.toFixed(0)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── SETTINGS ── */}
+      {tab === "settings" && (
+        <div style={s.page}>
+          <div style={s.card}>
+            <div style={s.cardTitle}>Diesel Settings</div>
+            <div style={{ marginBottom:12 }}><label style={s.label}>Diesel Price (€ per litre)</label><input style={s.input} type="number" value={dieselPrice} onChange={e => setDieselPrice(parseFloat(e.target.value)||0)} step="0.01" min="0" /></div>
+            <div style={{ marginBottom:12 }}><label style={s.label}>Fuel Efficiency (km per litre)</label><input style={s.input} type="number" value={kmPerL} onChange={e => setKmPerL(parseFloat(e.target.value)||1)} step="0.5" min="1" /></div>
+            <div style={{ background:"#222636", borderRadius:8, padding:"10px 14px", fontSize:13, color:"#7a7f99" }}>
+              Cost per km: <strong style={{ color:"#f0a500" }}>€{kmPerL>0?(dieselPrice/kmPerL).toFixed(3):"—"}</strong> · 20km trip = <strong style={{ color:"#f0a500" }}>€{kmPerL>0?(20*dieselPrice/kmPerL).toFixed(2):"—"}</strong>
+            </div>
+          </div>
+          <div style={s.card}>
+            <div style={s.cardTitle}>Install as App</div>
+            <div style={{ fontSize:13, color:"#7a7f99", lineHeight:1.7 }}>
+              To install on Android:<br/>
+              1. Open this file in <strong style={{ color:"#e8eaf0" }}>Chrome</strong><br/>
+              2. Tap the <strong style={{ color:"#e8eaf0" }}>⋮ menu</strong> (top right)<br/>
+              3. Tap <strong style={{ color:"#e8eaf0" }}>"Add to Home screen"</strong><br/>
+              4. Tap <strong style={{ color:"#e8eaf0" }}>Add</strong> — done! 🎉
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modal && <JobModal employees={employees} customers={customers} job={modal.job||null} dieselPrice={dieselPrice} kmPerL={kmPerL} onSave={saveJob} onClose={() => setModal(null)} onAddCustomer={(nc) => setCustomers(p => [...p, nc])} />}
+      {confirmDel && <ConfirmModal message={confirmDel.msg} onConfirm={doDelete} onCancel={() => setConfirmDel(null)} />}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
